@@ -1,6 +1,6 @@
-from PyQt5.QtCore import Qt, QRectF
-from PyQt5.QtGui import QPainter, QBrush, QColor, QFont, QPainterPath, QGuiApplication
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QMainWindow
+from PyQt5.QtCore import Qt, QRectF # type: ignore
+from PyQt5.QtGui import QPainter, QBrush, QColor, QFont, QPainterPath, QGuiApplication  # type: ignore
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QMainWindow       # type: ignore
 
 
 class BaseWindow(QMainWindow):
@@ -18,7 +18,8 @@ class BaseWindow(QMainWindow):
         Initialize the user interface.
         """
         self.setWindowTitle(title)
-        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.FramelessWindowHint)  # Hide the window frame and title bar (including close button) for a custom window design with rounded corners.
+        self.setToolTip("Use the custom close button to close the window.")
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(width, height)
 

@@ -2,8 +2,6 @@ import time
 import traceback
 import numpy as np
 import sounddevice as sd
-import tempfile
-import wave
 import webrtcvad
 from PyQt5.QtCore import QThread, QMutex, pyqtSignal
 from collections import deque
@@ -114,19 +112,9 @@ class ResultThread(QThread):
         self.sample_rate = recording_options.get('sample_rate') or 16000
         frame_duration_ms = 30  # 30ms frame duration for WebRTC VAD
         frame_size = int(self.sample_rate * (frame_duration_ms / 1000.0))
-        silence_duration_ms = recording_options.get('silence_duration') or 900
-        silence_frames = int(silence_duration_ms / frame_duration_ms)
 
-        # 150ms delay before starting VAD to avoid mistaking the sound of key pressing for voice
-        initial_frames_to_skip = int(0.15 * self.sample_rate / frame_size)
-
-        # Create VAD only for recording modes that use it
-        recording_mode = recording_options.get('recording_mode') or 'continuous'
-        vad = None
-        if recording_mode in ('voice_activity_detection', 'continuous'):
-            vad = webrtcvad.Vad(2)  # VAD aggressiveness: 0 to 3, 3 being the most aggressive
-            speech_detected = False
-            silent_frame_count = 0
+        # Create VAD only for filtering silence
+        vad = webrtcvad.Vad(2)  # VAD aggressiveness: 0 to 3, 3 being the most aggressive
 
         audio_buffer = deque(maxlen=frame_size)
         recording = []
@@ -152,34 +140,14 @@ class ResultThread(QThread):
                 # Save frame
                 frame = np.array(list(audio_buffer), dtype=np.int16)
                 audio_buffer.clear()
-                recording.extend(frame)
 
-                # Avoid trying to detect voice in initial frames
-                if initial_frames_to_skip > 0:
-                    initial_frames_to_skip -= 1
-                    continue
-
-                if vad:
-                    if vad.is_speech(frame.tobytes(), self.sample_rate):
-                        silent_frame_count = 0
-                        if not speech_detected:
-                            ConfigManager.console_print("Speech detected.")
-                            speech_detected = True
-                    else:
-                        silent_frame_count += 1
-
-                    if speech_detected and silent_frame_count > silence_frames:
-                        break
+                # Filter out silence using VAD
+                if vad.is_speech(frame.tobytes(), self.sample_rate):
+                    recording.extend(frame)
 
         audio_data = np.array(recording, dtype=np.int16)
         duration = len(audio_data) / self.sample_rate
 
         ConfigManager.console_print(f'Recording finished. Size: {audio_data.size} samples, Duration: {duration:.2f} seconds')
-
-        min_duration_ms = recording_options.get('min_duration') or 100
-
-        if (duration * 1000) < min_duration_ms:
-            ConfigManager.console_print(f'Discarded due to being too short.')
-            return None
 
         return audio_data
