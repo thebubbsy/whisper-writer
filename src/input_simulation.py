@@ -1,5 +1,6 @@
 import time
 import subprocess
+from PyQt5.QtCore import QTimer
 from pynput.keyboard import Controller as PynputController
 
 from utils import ConfigManager
@@ -22,14 +23,12 @@ class InputSimulator:
     A class to simulate keyboard input using various methods.
     """
 
-    def __init__(self):
+    def __init__(self, transparent_window):
         """
         Initialize the InputSimulator with the specified configuration.
         """
+        self.transparent_window = transparent_window
         self.input_method = ConfigManager.get_config_value('post_processing', 'input_method')
-
-        if self.input_method == 'pynput':
-            self.keyboard = PynputController()
 
     def typewrite(self, text):
         """
@@ -38,25 +37,7 @@ class InputSimulator:
         Args:
             text (str): The text to type.
         """
-        interval = ConfigManager.get_config_value('post_processing', 'writing_key_press_delay') / 2
-        try:
-            if self.input_method == 'pynput':
-                self._typewrite_pynput(text, interval)
-        except Exception as e:
-            print(f'Error during typewrite: {e}')
-
-    def _typewrite_pynput(self, text, interval):
-        """
-        Simulate typing using pynput.
-
-        Args:
-            text (str): The text to type.
-            interval (float): The interval between keystrokes in seconds.
-        """
-        for char in text:
-            self.keyboard.press(char)
-            self.keyboard.release(char)
-            time.sleep(interval)
+        self.transparent_window.display_text(text)
 
     def stop(self):
         """Stop the input simulator."""

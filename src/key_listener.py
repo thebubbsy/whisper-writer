@@ -8,7 +8,8 @@ class KeyListener:
     def __init__(self):
         self.listener = None
         self.callbacks = {
-            "on_activate_typing_and_clipboard": []
+            "on_activate_typing_and_clipboard": [],
+            "on_paste": []
         }
         self.last_activation_time = 0
         self.activation_delay = 1  # Minimum delay in seconds between activations
@@ -17,7 +18,9 @@ class KeyListener:
         """Start the key listener."""
         try:
             self.listener = keyboard.GlobalHotKeys({
-                '<ctrl>+<shift>+<alt>': self._on_hotkey_triggered
+                '<ctrl>+<shift>+<alt>': self._on_hotkey_triggered,
+                '<ctrl>+v': self._on_paste_triggered,
+                '<cmd>+v': self._on_paste_triggered
             })
             self.listener.start()
         except Exception as e:
@@ -35,6 +38,10 @@ class KeyListener:
         if current_time - self.last_activation_time >= self.activation_delay:
             self.last_activation_time = current_time
             self._trigger_callbacks("on_activate_typing_and_clipboard")
+
+    def _on_paste_triggered(self):
+        """Callback for the paste key combination."""
+        self._trigger_callbacks("on_paste")
 
     def add_callback(self, event, callback):
         """Add a callback function for a specific event."""

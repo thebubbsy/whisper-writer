@@ -1,7 +1,7 @@
 import os
 import sys
 from audioplayer import AudioPlayer # type: ignore
-from PyQt5.QtCore import QObject, QProcess, pyqtSlot, pyqtSignal # type: ignore
+from PyQt5.QtCore import QObject, QProcess, pyqtSlot, pyqtSignal, QMetaObject, Qt, Q_ARG # type: ignore
 from PyQt5.QtGui import QIcon                      # type: ignore
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMessageBox  # type: ignore
 
@@ -10,6 +10,7 @@ from result_thread import ResultThread
 from ui.settings_window import SettingsWindow
 from ui.status_window import StatusWindow
 from ui.system_tray_icon import SystemTrayIcon
+from ui.transparent_window import TransparentWindow
 from transcription import create_local_model
 from input_simulation import InputSimulator
 from utils import ConfigManager
@@ -32,6 +33,8 @@ class WhisperWriterApp(QObject):
         self.settings_window.settings_closed.connect(self.on_settings_closed)
         self.settings_window.settings_saved.connect(self.restart_app)
 
+        self.transparent_window = TransparentWindow()
+
         self.type_result = False # Type the result out when it is received.
         self.use_clipboard = False # Copy the result to the clipboard when it is received.
 
@@ -47,10 +50,11 @@ class WhisperWriterApp(QObject):
         """
         Initialize the components of the application.
         """
-        self.input_simulator = InputSimulator()
+        self.input_simulator = InputSimulator(self.transparent_window)
 
         self.key_listener = KeyListener()
         self.key_listener.add_callback("on_activate_typing_and_clipboard", lambda: self.on_activation(type_result=True, use_clipboard=True))
+        self.key_listener.add_callback("on_paste", self.transparent_window.reset_window)
 
         self.local_model = create_local_model()
 
@@ -128,6 +132,9 @@ class WhisperWriterApp(QObject):
         self.type_result = type_result
         self.use_clipboard = use_clipboard
 
+        # Show the transparent window immediately
+        QMetaObject.invokeMethod(self.transparent_window, "display_text", Qt.QueuedConnection, Q_ARG(str, ""))
+
         if self.result_thread and self.result_thread.isRunning():
             self.result_thread.stop_recording()
             return
@@ -164,17 +171,16 @@ class WhisperWriterApp(QObject):
     @pyqtSlot(str)
     def on_transcription_complete(self, result):
         """
-        When the transcription is complete, type the result and start listening for the activation key again.
+        When the transcription is complete, display the result in the transparent window.
         """
-        if self.type_result:
-            self.input_simulator.typewrite(result)
+        QMetaObject.invokeMethod(self.transparent_window, "display_text", Qt.QueuedConnection, Q_ARG(str, result))
 
         # Always copy the result to the clipboard
         clipboard = QApplication.clipboard()
         clipboard.setText(result)
 
         if ConfigManager.get_config_value('misc', 'noise_on_completion'):
-            AudioPlayer(os.path.join('assets', 'beep.wav')).play(block=True)
+            AudioPlayer(os.path.join('assets', 'soft-beep.wav')).play(block=True)
 
         self.key_listener.start()
 
