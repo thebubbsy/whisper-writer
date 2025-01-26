@@ -8,7 +8,7 @@ model_options:
   # Common configuration options for both API and local models
   common:
     language:
-      value: null
+      value: en
       type: str
       description: "The language code for the transcription in ISO-639-1 format."
     temperature:
@@ -38,7 +38,7 @@ model_options:
   # Configuration options for the faster-whisper model
   local:
     model:
-      value: base
+      value: small.en
       type: str
       description: "The model to use for transcription. The larger models provide better accuracy but are slower."
       options:
@@ -55,7 +55,7 @@ model_options:
         - large-v2
         - large-v3
     device:
-      value: auto
+      value: cuda
       type: str
       description: "The device to run the local Whisper model on. Use 'cuda' for NVIDIA GPUs, 'cpu' for CPU-only processing, or 'auto' to let the system automatically choose the best available device."
       options:
@@ -86,10 +86,21 @@ model_options:
 
 # Configuration options for activation and recording
 recording_options:
-  activation_key:
-    value: ctrl+shift+space
+  typing_activation_key:
+    value: ctrl+alt+d
     type: str
-    description: "The keyboard shortcut to activate the recording and transcribing process. Separate keys with a '+'."
+    description: "Activates the transcriber, and types the result. Separate keys with '+'."
+    is_key_combo: true
+  typing_and_clipboard_activation_key:
+    value: ctrl+alt+c
+    type: str
+    description: "Activates the transciber, types the result and copies it to clipboard. Separate keys with '+'."
+    is_key_combo: true
+  clipboard_activation_key:
+    value: ctrl+alt+x
+    type: str
+    description: "Activates the transciber, but only copies the result to clipboard. Separate keys with '+'."
+    is_key_combo: true
   input_backend:
     value: auto
     type: str
@@ -99,7 +110,7 @@ recording_options:
       - evdev
       - pynput
   recording_mode:
-    value: continuous
+    value: press_to_toggle
     type: str
     description: "The recording mode to use. Options include continuous (auto-restart recording after pause in speech until activation key is pressed again), voice_activity_detection (stop recording after pause in speech), press_to_toggle (stop recording when activation key is pressed again), hold_to_record (stop recording when activation key is released)."
     options:
@@ -116,7 +127,7 @@ recording_options:
     type: int
     description: "The sample rate in Hz to use for recording."
   silence_duration:
-    value: 900
+    value: 100000
     type: int
     description: "The duration in milliseconds to wait for silence before stopping the recording."
   min_duration:

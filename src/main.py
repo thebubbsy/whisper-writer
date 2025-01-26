@@ -1,23 +1,24 @@
 import os
 import sys
-import time
-from audioplayer import AudioPlayer
-from pynput.keyboard import Controller
-from PyQt5.QtCore import QObject, QProcess
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMessageBox
+from audioplayer import AudioPlayer # type: ignore
+from PyQt5.QtCore import QObject, QProcess, pyqtSlot, pyqtSignal, QMetaObject, Qt, Q_ARG # type: ignore
+from PyQt5.QtGui import QIcon                      # type: ignore
+from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QAction, QMessageBox  # type: ignore
 
 from key_listener import KeyListener
 from result_thread import ResultThread
-from ui.main_window import MainWindow
 from ui.settings_window import SettingsWindow
 from ui.status_window import StatusWindow
+from ui.system_tray_icon import SystemTrayIcon
+from ui.transparent_window import TransparentWindow
 from transcription import create_local_model
 from input_simulation import InputSimulator
 from utils import ConfigManager
 
-
 class WhisperWriterApp(QObject):
+    statusSignal = pyqtSignal(str)
+    resultSignal = pyqtSignal(str)
+
     def __init__(self):
         """
         Initialize the application, opening settings window if no configuration file is found.
@@ -32,67 +33,72 @@ class WhisperWriterApp(QObject):
         self.settings_window.settings_closed.connect(self.on_settings_closed)
         self.settings_window.settings_saved.connect(self.restart_app)
 
+        self.transparent_window = TransparentWindow()
+
+        self.type_result = False # Type the result out when it is received.
+        self.use_clipboard = False # Copy the result to the clipboard when it is received.
+
         if ConfigManager.config_file_exists():
             self.initialize_components()
         else:
             print('No valid configuration file found. Opening settings window...')
             self.settings_window.show()
 
+        self.hide_terminal()
+
     def initialize_components(self):
         """
         Initialize the components of the application.
         """
-        self.input_simulator = InputSimulator()
+        self.input_simulator = InputSimulator(self.transparent_window)
 
         self.key_listener = KeyListener()
-        self.key_listener.add_callback("on_activate", self.on_activation)
-        self.key_listener.add_callback("on_deactivate", self.on_deactivation)
+        self.key_listener.add_callback("on_activate_typing_and_clipboard", lambda: self.on_activation(type_result=True, use_clipboard=True))
+        self.key_listener.add_callback("on_paste", self.transparent_window.reset_window)
 
-        model_options = ConfigManager.get_config_section('model_options')
-        model_path = model_options.get('local', {}).get('model_path')
-        self.local_model = create_local_model() if not model_options.get('use_api') else None
+        self.local_model = create_local_model()
 
         self.result_thread = None
-
-        self.main_window = MainWindow()
-        self.main_window.openSettings.connect(self.settings_window.show)
-        self.main_window.startListening.connect(self.key_listener.start)
-        self.main_window.closeApp.connect(self.exit_app)
 
         if not ConfigManager.get_config_value('misc', 'hide_status_window'):
             self.status_window = StatusWindow()
 
         self.create_tray_icon()
-        self.main_window.show()
+        self.start_listening()
 
     def create_tray_icon(self):
         """
         Create the system tray icon and its context menu.
         """
-        self.tray_icon = QSystemTrayIcon(QIcon(os.path.join('assets', 'ww-logo.png')), self.app)
+        self.tray_icon = SystemTrayIcon(self)
 
-        tray_menu = QMenu()
+    def hide_terminal(self):
+        """
+        Hide the terminal window.
+        """
+        import ctypes
+        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)  # 0 is SW_HIDE
 
-        show_action = QAction('WhisperWriter Main Menu', self.app)
-        show_action.triggered.connect(self.main_window.show)
-        tray_menu.addAction(show_action)
+    def show_terminal(self):
+        """
+        Show the terminal window.
+        """
+        import ctypes
+        ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 5)  # 5 is SW_SHOW
 
-        settings_action = QAction('Open Settings', self.app)
-        settings_action.triggered.connect(self.settings_window.show)
-        tray_menu.addAction(settings_action)
-
-        exit_action = QAction('Exit', self.app)
-        exit_action.triggered.connect(self.exit_app)
-        tray_menu.addAction(exit_action)
-
-        self.tray_icon.setContextMenu(tray_menu)
-        self.tray_icon.show()
+    def start_listening(self):
+        """
+        Start listening for the activation key.
+        """
+        self.key_listener.start()
 
     def cleanup(self):
         if self.key_listener:
             self.key_listener.stop()
         if self.input_simulator:
-            self.input_simulator.cleanup()
+            self.input_simulator.stop()
+        if self.result_thread and self.result_thread.isRunning():
+            self.result_thread.stop()
 
     def exit_app(self):
         """
@@ -119,27 +125,21 @@ class WhisperWriterApp(QObject):
             )
             self.initialize_components()
 
-    def on_activation(self):
+    def on_activation(self, type_result, use_clipboard):
         """
         Called when the activation key combination is pressed.
         """
+        self.type_result = type_result
+        self.use_clipboard = use_clipboard
+
+        # Show the transparent window immediately
+        QMetaObject.invokeMethod(self.transparent_window, "display_text", Qt.QueuedConnection, Q_ARG(str, ""))
+
         if self.result_thread and self.result_thread.isRunning():
-            recording_mode = ConfigManager.get_config_value('recording_options', 'recording_mode')
-            if recording_mode == 'press_to_toggle':
-                self.result_thread.stop_recording()
-            elif recording_mode == 'continuous':
-                self.stop_result_thread()
+            self.result_thread.stop_recording()
             return
 
         self.start_result_thread()
-
-    def on_deactivation(self):
-        """
-        Called when the activation key combination is released.
-        """
-        if ConfigManager.get_config_value('recording_options', 'recording_mode') == 'hold_to_record':
-            if self.result_thread and self.result_thread.isRunning():
-                self.result_thread.stop_recording()
 
     def start_result_thread(self):
         """
@@ -149,32 +149,40 @@ class WhisperWriterApp(QObject):
             return
 
         self.result_thread = ResultThread(self.local_model)
-        if not ConfigManager.get_config_value('misc', 'hide_status_window'):
-            self.result_thread.statusSignal.connect(self.status_window.updateStatus)
-            self.status_window.closeSignal.connect(self.stop_result_thread)
-        self.result_thread.resultSignal.connect(self.on_transcription_complete)
+        self.result_thread.statusSignal.connect(self.handle_status_signal)
+        self.result_thread.resultSignal.connect(self.handle_result_signal)
         self.result_thread.start()
 
-    def stop_result_thread(self):
+    @pyqtSlot(str)
+    def handle_status_signal(self, status):
         """
-        Stop the result thread.
+        Handle status signals from the result thread.
         """
-        if self.result_thread and self.result_thread.isRunning():
-            self.result_thread.stop()
+        if hasattr(self, 'status_window') and not ConfigManager.get_config_value('misc', 'hide_status_window'):
+            self.status_window.updateStatus(status)
 
+    @pyqtSlot(str)
+    def handle_result_signal(self, result):
+        """
+        Handle result signals from the result thread.
+        """
+        self.on_transcription_complete(result)
+
+    @pyqtSlot(str)
     def on_transcription_complete(self, result):
         """
-        When the transcription is complete, type the result and start listening for the activation key again.
+        When the transcription is complete, display the result in the transparent window.
         """
-        self.input_simulator.typewrite(result)
+        QMetaObject.invokeMethod(self.transparent_window, "display_text", Qt.QueuedConnection, Q_ARG(str, result))
+
+        # Always copy the result to the clipboard
+        clipboard = QApplication.clipboard()
+        clipboard.setText(result)
 
         if ConfigManager.get_config_value('misc', 'noise_on_completion'):
-            AudioPlayer(os.path.join('assets', 'beep.wav')).play(block=True)
+            AudioPlayer(os.path.join('assets', 'soft-beep.wav')).play(block=True)
 
-        if ConfigManager.get_config_value('recording_options', 'recording_mode') == 'continuous':
-            self.start_result_thread()
-        else:
-            self.key_listener.start()
+        self.key_listener.start()
 
     def run(self):
         """
